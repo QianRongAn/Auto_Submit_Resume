@@ -1,8 +1,9 @@
-langchain==0.0.354
-openai==1.6.1
-packaging==23.2
-python-dotenv==1.0.0
-selenium==4.16.0
-robotframework
-robotframework-seleniumlibrary
-robotframework-pythonlibcore
+# 轻量版依赖（已去掉 langchain / FAISS / torch / sentence-transformers）
+# 安装：pip install -r requirements.txt
+# 国内网络装不上时加镜像：-i https://mirrors.aliyun.com/pypi/simple/
+openai>=1.40
+selenium>=4.16
+pypdf>=4.0
+pymupdf>=1.24
+pyperclip>=1.8
+python-dotenv>=1.0

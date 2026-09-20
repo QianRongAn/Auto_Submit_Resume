@@ -1,0 +1,14 @@
+# 原版（langchain + FAISS 向量检索）依赖，体积约 2GB，且需要 Python <= 3.11
+# 本项目已改用轻量方案，这个文件仅作保留，一般不需要安装
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-huggingface>=0.0.1
+langchain-community>=0.0.10
+langchain-text-splitters>=0.0.1
+langchain-core>=0.1.0
+openai>=1.6.1
+python-dotenv>=1.0.0
+selenium>=4.16.0
+huggingface-hub>=0.20.0
+sentence-transformers>=2.2.0
+faiss-cpu

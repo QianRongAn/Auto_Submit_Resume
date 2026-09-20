@@ -41,3 +41,39 @@
 .idea/
 .vs/
 
+# ---- 本地运行产物 / 隐私（勿提交）----
+# 含 DeepSeek API key
+/auto_job_find/.env
+# 含 BOSS 登录 cookie 的浏览器 profile
+/auto_job_find/edge_profile/
+/auto_job_find/chrome_profile/
+/auto_job_find/Microsoft/
+# 运行日志（含投递记录与截图）
+/auto_job_find/logs/
+# 浏览器驱动二进制（各 20MB+，需要时自行下载）
+/auto_job_find/drivers/*.exe
+# 简历 PDF（含手机号/邮箱，默认不入库；需要的话手动 git add -f）
+/auto_job_find/resume/*.pdf
+/auto_job_find/resume_en/*.pdf
+# 求职流程记录（含生成的话术与投递状态）
+/pipeline/
+# 本地会话记忆
+/.workbuddy/
+
+# 统一密码 / 投递邮箱（明文，绝不入库）
+/auto_job_find/secrets.local.json
+/auto_job_find/apply_filter.local.json
+*.local.json
+# 投递材料包（含手机号、邮箱、求职信、公司清单）
+/auto_job_find/apply_kit/
+# 从简历提取的纯文本（含手机号 / 邮箱）
+/auto_job_find/resume_en/*.txt
+# 浏览器驱动整目录（三个 .exe 共 69MB，自行下载）
+/auto_job_find/drivers/
+# 自动化会话状态（含 cookie / 登录态）
+*.state.json
+/auto_job_find/*_state.json
+# Python 缓存
+__pycache__/
+*.py[cod]
+
