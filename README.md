@@ -190,7 +190,7 @@ Selenium 驱动浏览器、扫码登录、逐个投递的那套流程，本分�
 ## 原作者原版说明
 
 <details>
-<summary>点击展开：付费版、操作步骤、assistant / langchain 模式、常见问题、其他朋友的项目</summary>
+<summary>点击展开：操作步骤、assistant / langchain 模式、常见问题、其他朋友的项目</summary>
 
 ### 正文
 
