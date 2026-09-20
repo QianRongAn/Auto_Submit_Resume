@@ -202,7 +202,7 @@ def generate_letter(client, resume_text, job_description, character_limit=300,
         system_prompt += (("\n9. This draft's required angle: " + angle_hint) if is_en
                           else ("\n8. 本条话术的写法要求：" + angle_hint))
 
-    # 署名：英文场景必须用拼音名（写"王楠"HR 一眼看出是机器批量生成的）
+    # 署名：英文场景必须用拼音名（直接用中文名会显得像机器批量生成的）
     sign_name = ((CANDIDATE_NAME_EN or CANDIDATE_NAME or "Your Name") if is_en
                  else (CANDIDATE_NAME or "求职者"))
 

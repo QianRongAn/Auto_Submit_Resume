@@ -80,7 +80,7 @@ Requirements:
 3. Sentence 1: why you are reaching out to THIS person or THIS role — be specific.
 4. Sentence 2: your single most relevant credential, in concrete terms.
 5. No "I'd love to pick your brain", no "I hope this message finds you well", no flattery.
-6. End with the candidate's FULL name exactly as supplied below (e.g. "Nan Wang").
+6. End with the candidate's FULL name exactly as supplied below (e.g. "Alex Chen").
    Never shorten it to a single word, and never let the name be what gets trimmed for length —
    if you are running long, cut the BODY, keep the name intact.
 7. Sound like a native English speaker in industry/academia, not a translated template."""
