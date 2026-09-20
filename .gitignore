@@ -68,6 +68,10 @@
 /auto_job_find/apply_kit/
 # 从简历提取的纯文本（含手机号 / 邮箱）
 /auto_job_find/resume_en/*.txt
+# 私有筛选配置（含个人求职方向、学历、论文数等，绝不入库）
+matcher_profile.json
+# 某个脚本误写出来的 0 字节空文件，不是项目文件
+/clientHeight
 # 浏览器驱动整目录（三个 .exe 共 69MB，自行下载）
 /auto_job_find/drivers/
 # 自动化会话状态（含 cookie / 登录态）

@@ -1,0 +1,154 @@
+{
+  "_README": [
+    "示例配置（数据分析方向）。复制本文件为 matcher_profile.json，再按自己的情况改。",
+    "matcher_profile.json 已在 .gitignore 中，你的私有配置不会被提交。",
+    "加载顺序：matcher_profile.json（你的）→ matcher_profile.example.json（本文件）→ 内置兜底。",
+    "要换求职方向，改 CORE_TERMS（方向词 + 权重 + 展示名）和 TITLE_BOOST 就够，不必动代码。",
+    "EXCLUDE_HARD 只写你「绝对不可能投」的岗位类型，别写你只是「不优先考虑」的，那类交给打分去区分。",
+    "改完方向词表，跑 python matcher.py --selftest 看判定是否符合预期。",
+    "正则写成 JSON 字符串，反斜杠要写两遍，例如 \\\\b 表示正则里的 \\b。"
+  ],
+
+  "PROFILE": {
+    "degree": "bachelor",
+    "years": 3,
+    "field": "数据分析 / 商业智能",
+    "skills": "SQL / Python / 指标体系搭建 / 数据可视化 / A/B 实验",
+    "lang": "zh + en"
+  },
+
+  "CORE_TERMS": [
+    ["数据分析|数据分析师", 16, "数据分析"],
+    ["data analy", 16, "data analysis"],
+    ["数据科学|data scien", 14, "数据科学"],
+    ["商业分析|业务分析|business analy", 13, "商业分析"],
+    ["数据挖掘|data mining", 12, "数据挖掘"],
+    ["数据仓库|data warehouse|数仓", 11, "数据仓库"],
+    ["指标体系|指标平台", 10, "指标体系"],
+    ["数据可视化|可视化|tableau|power ?bi|fine ?bi", 9, "数据可视化"],
+    ["商业智能|\\bBI\\b|BI 工程", 8, "商业智能/BI"],
+    ["ETL|数据管道|data pipeline", 8, "ETL/数据管道"],
+    ["A/B|AB 测试|ab test|ab 实验|实验平台", 8, "A/B 实验"],
+    ["用户增长|growth|用户画像|精准营销", 7, "增长/用户画像"],
+    ["数据产品|data product", 7, "数据产品"],
+    ["统计|statistic", 6, "统计学"],
+    ["\\bSQL\\b", 6, "SQL"],
+    ["机器学习|machine learning", 5, "机器学习"],
+    ["报表|看板|dashboard", 4, "报表/看板"],
+    ["\\bPython\\b", 4, "Python"],
+    ["\\bExcel\\b", 3, "Excel"],
+    ["\\bR\\b(?!\\w)|R语言", 3, "R 语言"]
+  ],
+
+  "TITLE_BOOST": [
+    "数据分析", "data analy", "数据科学", "data scien",
+    "商业分析", "business analy", "数据挖掘", "\\bBI\\b"
+  ],
+
+  "EXCLUDE_HARD": [
+    "保险", "传销", "催收", "网贷", "房产中介",
+    "劳务派遣", "加盟", "微商", "外卖骑手", "月嫂"
+  ],
+
+  "AMBIGUOUS_TITLE": ["平面设计", "UI设计", "活动策划"],
+
+  "EXCLUDE_HARD_EN": [
+    "insurance agent", "real estate", "loan officer",
+    "debt collector", "pyramid scheme"
+  ],
+
+  "EXCLUDE_COMPANY": ["传销", "劳务", "人力资源", "人才服务", "网贷", "保险代理"],
+
+  "EXCLUDE_SOFT": ["实习", "兼职", "intern", "part-time", "应届", "管培"],
+
+  "SENIORITY_BLOCK": [
+    ["首席|首席科学家|chief (scientist|officer)|CTO|CEO", 45, "岗位要求过高（首席级）"],
+    ["总监|director\\b|head of|VP\\b|vice president", 40, "岗位要求过高（总监级）"],
+    ["资深专家|principal (scientist|engineer)|fellow\\b", 35, "岗位要求过高（专家级）"]
+  ],
+
+  "SENIORITY_WARN": [
+    ["高级|senior|lead\\b|负责人", 8, "偏高级岗位，可能需要更多年限"]
+  ],
+
+  "DEGREE_PHD": ["博士(?!优先|学历优先|研究生在读)", "PhD (required|is required)",
+                 "doctorate", "Ph\\.?D\\.? required"],
+
+  "VAGUE_HINTS": ["猎头", "代招", "外包", "驻场", "派遣", "人力", "众包", "日结"],
+
+  "VISA_NEED": ["no (visa )?sponsorship", "without sponsorship",
+                "must be (a )?(us|u\\.s\\.) (citizen|person)", "security clearance",
+                "work authorization.*(required|must)", "不提供.*(签证|工签)"],
+
+  "VISA_GOOD": ["visa sponsorship", "sponsor(ship)? (is )?available",
+                "we sponsor", "relocation support", "支持.*(签证|工签|relocation)"],
+
+  "LLM_PROMPT": "你是求职匹配顾问。判断这个岗位是否值得投递。\n\n【候选人事实（不得假设任何额外经历）】\n- 学历：本科（统计学）\n- 经历：约 3 年数据分析，电商与零售行业\n- 方向：指标体系、数据可视化、A/B 实验；SQL + Python\n- 求职方向：数据分析师 / 商业分析师 / 数据运营\n- 不希望投：销售类、纯外包、需博士学位的岗位\n\n【岗位】\n标题：{title}\n公司：{company}\n描述（截断）：\n{jd}\n\n只返回 JSON，不要任何解释文字：\n{{\"fit\": 0-100, \"veto\": true/false, \"reason\": \"20字以内中文理由\"}}\nveto=true 表示这个岗位根本不该投（方向完全无关、或明显不合适）。\n",
+
+  "SELFTEST": [
+    {
+      "title": "数据分析师（电商）",
+      "company": "某电商",
+      "site": "zhipin",
+      "expect": "apply",
+      "jd": "岗位职责：负责 GMV 与用户行为数据分析，搭建指标体系与看板。任职要求：本科，熟悉 SQL/Python，有 A/B 实验经验。"
+    },
+    {
+      "title": "保险代理人",
+      "company": "某保险公司",
+      "site": "zhipin",
+      "expect": "skip",
+      "jd": "负责客户保单销售与续期跟进。"
+    },
+    {
+      "title": "外卖骑手",
+      "company": "某配送平台",
+      "site": "zhipin",
+      "expect": "skip",
+      "jd": "负责区域订单配送。"
+    },
+    {
+      "title": "Senior Director of Data Science",
+      "company": "某科技",
+      "site": "linkedin",
+      "expect": "skip",
+      "jd": "We are hiring a Senior Director with 12+ years of experience. PhD required. No visa sponsorship."
+    },
+    {
+      "title": "Data Analyst",
+      "company": "某咨询",
+      "site": "linkedin",
+      "expect": "apply",
+      "jd": "About the job: You will own dashboards and reporting in SQL and Excel, run A/B tests in Python, and build the metrics layer. Visa sponsorship available. 2-3 years of experience preferred."
+    },
+    {
+      "title": "商业分析师（零售）",
+      "company": "某零售集团",
+      "site": "zhipin",
+      "expect": "apply",
+      "jd": "岗位职责：门店经营数据分析与用户画像，输出周报与看板。任职要求：本科，熟练使用 SQL 与 Excel，有指标体系搭建经验。"
+    },
+    {
+      "title": "会计",
+      "company": "某贸易公司",
+      "site": "zhipin",
+      "expect": "skip",
+      "jd": "负责日常账务处理与凭证整理。要求本科，有初级会计职称。"
+    },
+    {
+      "title": "数据分析实习生",
+      "company": "某电商",
+      "site": "zhipin",
+      "expect": "apply",
+      "jd": "协助完成日常数据统计与报表整理。要求在校生。"
+    },
+    {
+      "title": "数据分析师",
+      "company": "某电商",
+      "site": "zhipin",
+      "expect": "apply",
+      "card_text": "五险一金 定期体检 培训 带薪年假 团建聚餐",
+      "jd": "岗位职责：业务数据分析、指标体系搭建、A/B 实验设计。要求本科，熟悉 SQL。"
+    }
+  ]
+}

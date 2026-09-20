@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI 求职助手（BOSS 直聘 + LinkedIn）· 自动筛选投递
 // @namespace    qianrongan.job
-// @version      2.0.0
+// @version      2.1.0
 // @description  在你真实浏览器里自动扫岗位、筛岗位、写话术、投递。不另开浏览器、不驱动浏览器，因此没有 webdriver 指纹。
 // @author       QianRongAn
 // @match        https://www.zhipin.com/*
@@ -519,20 +519,12 @@
   }
 
   // 本地预筛：只做「一眼就能看出来不投」的排除，省掉一次点击 + 一次 JD 解析。
-  // ⚠ 这份表必须和 matcher.py 的 EXCLUDE_HARD 保持同源，但**只匹配标题**。
-  //    曾经拿卡片全文匹配，结果 BOSS 福利标签里的「培训」「五险一金」
+  // 词表来自本地服务的 /health，源头是 matcher_profile.json。
+  // 换求职方向改配置即可，不必动这个脚本；服务没起时表是空的，预筛全部放行，
+  // 后续仍由引擎判定，不会误投。
+  // ⚠ 只匹配标题。曾经拿卡片全文匹配，结果 BOSS 福利标签里的「培训」「五险一金」
   //    把正经研发岗判成了销售类岗位。
-  const LOCAL_EXCLUDE = [
-    '销售', '保险', '房产', '中介', '招生', '课程顾问', '导购', '招商', '地推',
-    '贷款', '理财', '催收', '客户经理', '医药代表', '客户代表', '业务代表',
-    '服务员', '客服', '司机', '普工', '外卖', '骑手', '主播', '直播', '保安',
-    '保洁', '厨师', '月嫂', '美发', '快递', '分拣', '仓管', '收银', '前台',
-    '文员', '行政', '人事', '招聘专员', '会计', '出纳', '法务', '审计',
-    '电商运营', '新媒体运营', '文案策划', '美工', '教师', '幼教', '助教',
-    '证券', '期货', '护士', '医师', '药师', '检验技师', '注册专员',
-    'sales representative', 'account executive', 'insurance agent',
-    'recruiter', 'talent acquisition', 'customer service', 'cashier', 'nurse',
-  ];
+  let LOCAL_EXCLUDE = [];
 
   function localPreFilter(meta) {
     const title = (meta.title || '').toLowerCase();
@@ -1656,6 +1648,12 @@
             + ` ｜ 目标区域 ${(r.match.target_regions || []).join('/') || '不限'}`
             + ` ｜ 签证 ${r.match.need_visa ? '需要（不赞助的会扣分）' : '不需要'}`, 'ok');
           S.threshold = r.match.threshold;   // 以服务端 .env 为准
+          // 本地预筛词表也以服务端为准，脚本里不再硬编码求职方向
+          if (Array.isArray(r.match.hard_exclude) && r.match.hard_exclude.length) {
+            LOCAL_EXCLUDE = r.match.hard_exclude.slice();
+            log(`本地预筛用服务端的 ${LOCAL_EXCLUDE.length} 个排除词`
+              + `（来自 ${r.match.hard_exclude_source || '服务端配置'}）`, 'ok');
+          }
         }
         if (r.screening) {
           S.screening = r.screening;

@@ -224,6 +224,11 @@ class Handler(BaseHTTPRequestHandler):
                     "exclude": matcher._env_list("EXCLUDE_KEYWORDS", ""),
                     "target_regions": matcher._env_list("TARGET_REGIONS", ""),
                     "need_visa": matcher._env("NEED_VISA", "1") == "1",
+                    # 完整词表，油猴脚本启动时拉取，用来替换它自己的兜底表。
+                    # 这样换求职方向只需改 matcher_profile.json，不必动脚本。
+                    "hard_exclude": list(matcher.EXCLUDE_HARD)
+                                    + list(matcher.EXCLUDE_HARD_EN),
+                    "hard_exclude_source": matcher.CFG_SOURCE,
                     "hard_exclude_terms": len(matcher.EXCLUDE_HARD),
                 },
                 # —— 候选人资质应答：Easy Apply 自动填表的「如实答案」，脚本照此勾选 ——

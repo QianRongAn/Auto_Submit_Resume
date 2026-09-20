@@ -29,7 +29,7 @@ load_dotenv(os.path.join(BASE, ".env"))
 
 PORT = int(os.getenv("ATTACH_PORT") or "9222")
 PROFILE = os.path.join(BASE, "edge_profile")
-JOB_URL = os.getenv("JOB_URL") or "https://www.zhipin.com/web/geek/job?query=%E6%9C%8D%E5%8A%A1%E5%91%98&city=100010000"
+JOB_URL = os.getenv("JOB_URL") or "https://www.zhipin.com/web/geek/jobs?city=100010000"
 HOME_URL = "https://www.zhipin.com/"
 MAX_APPLY = int(os.getenv("MAX_APPLY") or "2")
 LETTER_LIMIT = int(os.getenv("LETTER_LIMIT") or "300")

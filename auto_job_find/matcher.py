@@ -1,31 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-岗位筛选打分引擎 —— 「替你决定这个岗位值不值得投」。
+岗位筛选打分引擎：替你决定这个岗位值不值得投。
 
 为什么要单开一个模块：
-  全自动投递最大的风险不是技术，是「投错」—— 把招呼语发给一个卖保险的岗位，
+  全自动投递最大的风险不是技术，是「投错」，比如把招呼语发给一个卖保险的岗位，
   既浪费当天配额，也让账号看起来像机器。所以投之前必须先过一道筛。
   筛选规则必须**可解释**：用户要能看到「为什么跳过这个岗位」，否则不敢放手让它跑。
 
+筛选用的方向词、排除词、候选人事实全部来自 matcher_profile.json，
+换一个求职方向只需改配置，不必改这个文件里的代码。
+
 判定分三档：
-  skip   —— 硬排除命中，或分数低于下限。不投。
-  review —— 边界分（默认 35~59）。规则吃不准，交给用户/模型复核。
-  apply  —— 分数达到阈值（默认 60）。投。
+  skip    硬排除命中，或分数低于下限。不投。
+  review  边界分（默认 35~59）。规则吃不准，交给用户/模型复核。
+  apply   分数达到阈值（默认 60）。投。
 
 打分模型（总分 0~100）：
-  核心技能命中（方向词）     最多 60 分，标题里命中权重 ×2
-  职位名强化词               最多 20 分
-  ── 扣分项 ──
-  硬排除词（标题）           直接 0 分，不参与后续
-  资历要求过高               最多 -45
-  学历要求（要博士）          -18
-  地点/签证不匹配            -15 ~ -35
-  猎头含糊/外包/驻场          -12
-  命中 .env 的 INCLUDE 门槛   没命中 -35（INCLUDE_KEYWORDS 非空时才生效）
+  核心技能命中（CORE_TERMS）   最多 +78，标题里命中权重 ×2
+  职位名强化词（TITLE_BOOST）  命中 +18
+  扣分项：
+    硬排除词（标题）           直接 0 分，不参与后续
+    资历要求过高               最多 -45
+    学历要求（要博士）         -18
+    地点/签证不匹配            -15 ~ -35
+    猎头含糊/外包/驻场         -12
+    命中 .env 的 INCLUDE 门槛  没命中 -35（INCLUDE_KEYWORDS 非空时才生效）
 
 LLM 复核：只在 review 档触发，避免每条岗位都花 token。
 """
 
+import io
 import os
 import re
 import sys
@@ -46,15 +50,82 @@ except Exception:
 
 
 # ===========================================================================
-# 一、候选人事实（来源：pipeline/profile.md —— 这部分是事实，不要凭感觉改）
+# 一、配置加载
+#
+#  所有和个人背景相关的词表都放在配置文件里，代码本身不含任何人的具体方向。
+#  换一个求职方向只需改配置，不必读源码，也不必碰这个文件。
+#
+#  加载顺序：
+#    1. matcher_profile.json          你自己的私有配置（已在 .gitignore 中）
+#    2. matcher_profile.example.json  仓库自带的示例（数据分析方向）
+#    3. 内置兜底                       两个都没有时用一套最小规则，并打印告警
+#
+#  建自己的配置：复制 matcher_profile.example.json 为 matcher_profile.json 再改。
 # ===========================================================================
-PROFILE = {
-    "degree": "master",
-    "years": 2.5,          # 2024.07 起三段科研/企业经历 ≈ 2.5 年
-    "field": "计算生物学 / 肿瘤免疫与多组学",
-    "skills": "Python / R / NGS 分析 / scRNA-seq / 空间转录组 / 免疫组库 / 新抗原预测",
-    "lang": "zh + en",
-}
+_PRIVATE_CFG = os.path.join(BASE_DIR, "matcher_profile.json")
+_EXAMPLE_CFG = os.path.join(BASE_DIR, "matcher_profile.example.json")
+
+# 两个配置文件都缺失时的兜底提示词，只描述岗位、不假设任何候选人经历
+_FALLBACK_PROMPT = """你是求职匹配顾问。判断这个岗位是否值得投递。
+
+【候选人事实】
+（未配置。请在 matcher_profile.json 的 PROFILE 与 LLM_PROMPT 里填写。）
+
+【岗位】
+标题：{title}
+公司：{company}
+描述（截断）：
+{jd}
+
+只返回 JSON，不要任何解释文字：
+{{"fit": 0-100, "veto": true/false, "reason": "20字以内中文理由"}}
+veto=true 表示这个岗位根本不该投（方向完全无关、或明显不合适）。
+"""
+
+
+def _load_cfg():
+    for path in (_PRIVATE_CFG, _EXAMPLE_CFG):
+        if not os.path.exists(path):
+            continue
+        try:
+            with io.open(path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            cfg["_source"] = os.path.basename(path)
+            return cfg
+        except Exception as e:
+            print(f"[matcher] 配置解析失败，跳过 {os.path.basename(path)}：{e}",
+                  file=sys.stderr)
+    print("[matcher] 没找到 matcher_profile.json，也没找到 matcher_profile.example.json，"
+          "当前只用一套最小规则，判定会偏保守。"
+          "请复制 matcher_profile.example.json 为 matcher_profile.json 后按需填写。",
+          file=sys.stderr)
+    return {"_source": "内置兜底"}
+
+
+CFG = _load_cfg()
+CFG_SOURCE = CFG.get("_source", "")
+
+
+def _tuples(rows):
+    """配置里的 [正则, 权重, 名称] 转成元组列表，_hits 靠 tuple 类型做判断。"""
+    return [tuple(x) for x in (rows or [])]
+
+
+PROFILE = CFG.get("PROFILE") or {"degree": "master", "years": 0,
+                                 "field": "", "skills": "", "lang": "zh + en"}
+CORE_TERMS = _tuples(CFG.get("CORE_TERMS"))
+TITLE_BOOST = CFG.get("TITLE_BOOST") or []
+EXCLUDE_HARD = CFG.get("EXCLUDE_HARD") or []
+EXCLUDE_HARD_EN = CFG.get("EXCLUDE_HARD_EN") or []
+EXCLUDE_COMPANY = CFG.get("EXCLUDE_COMPANY") or []
+EXCLUDE_SOFT = CFG.get("EXCLUDE_SOFT") or []
+AMBIGUOUS_TITLE = CFG.get("AMBIGUOUS_TITLE") or []
+SENIORITY_BLOCK = _tuples(CFG.get("SENIORITY_BLOCK"))
+SENIORITY_WARN = _tuples(CFG.get("SENIORITY_WARN"))
+DEGREE_PHD = CFG.get("DEGREE_PHD") or []
+VAGUE_HINTS = CFG.get("VAGUE_HINTS") or []
+VISA_NEED = CFG.get("VISA_NEED") or []
+VISA_GOOD = CFG.get("VISA_GOOD") or []
 
 
 def _env(key, default=""):
@@ -67,121 +138,40 @@ def _env_list(key, default=""):
 
 
 # ===========================================================================
-# 二、核心方向词：命中就说明「这个岗位和本人专业有交集」
-#     (正则, 权重, 展示名)   —— 权重是「这个词有多能代表本人方向」
-# ===========================================================================
-CORE_TERMS = [
-    # —— 最核心：直接就是本行 ——
-    (r"生物信息|生信|生物信息学", 16, "生物信息学"),
-    (r"bioinformatic", 16, "bioinformatics"),
-    (r"计算生物|computational biology|computational biologist", 15, "计算生物学"),
-    (r"生物统计|biostatistic", 12, "生物统计"),
-
-    # —— 组学 / 测序 ——
-    (r"多组学|multi-?omics|组学分析", 11, "多组学"),
-    (r"单细胞|single[- ]cell|scRNA", 10, "单细胞"),
-    (r"空间转录组|spatial transcriptom", 9, "空间转录组"),
-    (r"转录组|transcriptom|RNA[- ]?seq", 8, "转录组"),
-    (r"免疫组库|immune repertoire|TCR|BCR", 9, "免疫组库"),
-    (r"测序|NGS|sequencing|高通量", 7, "测序/NGS"),
-    (r"基因组|genomic|WES|WGS|变异分析", 6, "基因组"),
-
-    # —— 肿瘤免疫 ——
-    (r"肿瘤免疫|tumor immunolog|cancer immunolog|immuno-?oncology", 11, "肿瘤免疫"),
-    (r"肿瘤|癌症|cancer|tumou?r", 5, "肿瘤"),
-    (r"免疫|immun", 4, "免疫学"),
-    (r"新抗原|neoantigen", 8, "新抗原"),
-    (r"CAR-?T|细胞治疗|cell therapy", 7, "细胞治疗"),
-
-    # —— 通用生信技能（弱信号）——
-    (r"\bPython\b", 3, "Python"),
-    (r"\bR\b(?!\w)|R语言", 3, "R 语言"),
-    (r"数据分析|数据挖掘|data analys|data scien", 4, "数据分析"),
-    (r"算法|机器学习|machine learning|deep learning", 3, "算法/ML"),
-    (r"精准医疗|转化医学|生物医学|医药研发", 3, "生物医药"),
-    (r"疾病机制|靶点|drug discovery|biomarker|生物标记", 3, "靶点/标志物"),
-]
-
-# 出现在岗位标题里 → 额外加权（说明这就是这个岗位的主职）
-TITLE_BOOST = [
-    r"生信|生物信息", r"计算生物", r"生物统计", r"组学", r"单细胞",
-    r"bioinformatic", r"computational", r"biostatistic",
-    r"data analyst|data scientist|数据科学家|数据分析",
-    r"research scientist|研究员|科学家",
-]
-
-# ===========================================================================
-# 三、硬排除：命中即 0 分
+# 二、核心方向词（配置项 CORE_TERMS / TITLE_BOOST）
 #
-#  ⚠ 只查「岗位标题」，**绝不查 JD 正文，也不查 BOSS 卡片全文**。
+#     格式：[正则, 权重, 展示名]
+#     权重表示「这个词有多能代表目标求职方向」，命中标题时权重翻倍。
+#     TITLE_BOOST 里的词出现在标题中，额外再给一次加分。
+#
+#     要换求职方向，改 matcher_profile.json 里的 CORE_TERMS 就够，
+#     不必动这个文件里的任何代码。
+# ===========================================================================
+
+# ===========================================================================
+# 三、硬排除：命中即 0 分（配置项 EXCLUDE_HARD / EXCLUDE_HARD_EN /
+#     EXCLUDE_COMPANY / AMBIGUOUS_TITLE / EXCLUDE_SOFT）
+#
+#  ⚠ EXCLUDE_HARD 只查「岗位标题」，EXCLUDE_COMPANY 只查「公司名」，
+#    **绝不查 JD 正文，也不查 BOSS 卡片全文**。
 #    踩过的坑：BOSS 的岗位卡片尾部挂着一堆福利标签，
 #    像「培训」「五险一金」「带薪年假」「团建聚餐」这类字样。一旦拿卡片全文
 #    去匹配排除词，这些福利描述就会和排除词撞上，
 #    于是一个正经的研发岗被误判成销售类岗位跳过了。
 #    标题短、信息密度高，用它判排除最稳。
+#
+#  ⚠ 这张表因人而异，取决于你要找什么工作。示例配置只放了公认该跳过的类型，
+#    你自己的偏好写进 matcher_profile.json，不要改这个文件。
 # ===========================================================================
-EXCLUDE_HARD = [
-    # 销售 / 中介 / 拉人
-    "销售", "保险", "房产", "中介", "招生", "课程顾问", "导购", "招商", "地推",
-    "贷款", "理财", "催收", "电话", "渠道经理", "商务拓展", "客户经理",
-    "医药代表", "客户代表", "业务代表", "商务代表",
-    "店长", "门店", "加盟", "微商", "代理商",
-    # 服务 / 体力
-    "服务员", "客服", "司机", "普工", "外卖", "骑手", "主播", "直播", "保安",
-    "保洁", "厨师", "月嫂", "美发", "快递", "分拣", "仓管", "收银", "前台",
-    "保姆", "管家", "学徒",
-    # 与本人无关的白领岗（易被推荐算法塞进来）
-    "文员", "行政", "人事", "招聘专员", "会计", "出纳", "法务", "审计",
-    "电商运营", "新媒体运营", "文案策划", "美工", "教师", "幼教", "助教",
-    "证券", "期货", "股票经纪人",
-    # 临床 / 需执照
-    "护士", "医师", "药师", "检验技师", "注册专员",
-]
 
-# 「不限方向」的模糊词 —— 标题里出现这些要小心，但它们也常出现在正经岗位里
-# （「生物信息工程师（数据分析方向）」），所以只当软扣分，不当硬排除。
-AMBIGUOUS_TITLE = ["平面设计", "UI设计", "活动策划", "销售运营"]
-
-EXCLUDE_HARD_EN = [
-    "sales representative", "account executive", "insurance agent",
-    "real estate", "recruiter", "talent acquisition", "customer service",
-    "driver", "cashier", "warehouse", "nurse", "physician", "clinical fellow",
-    "staff accountant", "marketing manager", "social media manager",
-    "product marketing", "business development manager",
-]
-
-# 公司名命中 → 基本可以断定不是目标行业（公司名短，误杀风险低）
-EXCLUDE_COMPANY = ["保险", "房产", "中介", "传销", "劳务", "人力资源",
-                   "人才服务", "招聘", "网贷", "证券", "期货"]
-
-# 这些词出现在标题里多半是「不匹配的岗位被推荐过来」
-EXCLUDE_SOFT = ["实习", "兼职", "intern", "part-time", "应届", "管培"]
 
 # ===========================================================================
-# 四、资历 / 学历 / 地点
+# 四、资历 / 学历 / 地点（配置项 SENIORITY_BLOCK / SENIORITY_WARN /
+#     DEGREE_PHD / VAGUE_HINTS / VISA_NEED / VISA_GOOD）
+#
+#     这些是「相对目标画像而言偏高」的扣分项，不是硬排除，所以走扣分而非归零。
+#     签证两项只在 .env 的 NEED_VISA=1 时生效。
 # ===========================================================================
-SENIORITY_BLOCK = [
-    (r"首席|首席科学家|chief (scientist|officer)|CTO|CEO", 45, "岗位要求过高（首席级）"),
-    (r"总监|director\b|head of|VP\b|vice president", 40, "岗位要求过高（总监级）"),
-    (r"资深专家|principal (scientist|engineer)|fellow\b", 35, "岗位要求过高（专家级）"),
-]
-SENIORITY_WARN = [
-    (r"高级|senior|lead\b|负责人", 8, "偏高级岗位，可能需要更多年限"),
-]
-
-# 明确写了「要博士」→ 扣分（本人硕士，走的是企业线）
-DEGREE_PHD = [r"博士(?!优先|学历优先|研究生在读)", r"PhD (required|is required)",
-              r"doctorate", r"Ph\.?D\.? required"]
-
-# 猎头 / 外包 / 驻场 / 含糊
-VAGUE_HINTS = ["猎头", "代招", "外包", "驻场", "派遣", "人力", "众包", "日结"]
-
-# 海外岗位：签证。NEED_VISA=1 时，明确「不提供赞助」的直接劝退
-VISA_NEED = [r"no (visa )?sponsorship", r"without sponsorship",
-             r"must be (a )?(us|u\.s\.) (citizen|person)", r"security clearance",
-             r"work authorization.*(required|must)", r"不提供.*(签证|工签)"]
-VISA_GOOD = [r"visa sponsorship", r"sponsor(ship)? (is )?available",
-             r"we sponsor", r"relocation support", r"支持.*(签证|工签|relocation)"]
 
 
 def _hits(patterns, text):
@@ -243,7 +233,7 @@ def score_job(title="", company="", jd="", card_text="", site="", scene=None,
     company = (company or "").strip()
     jd = (jd or "").strip()
     card_text = (card_text or "").strip()
-    # ⚠ 判排除只用 title / company —— 原因见 EXCLUDE_HARD 上面的注释（福利标签误杀）。
+    # ⚠ 判排除只用 title / company，原因见上面第三、四节的注释（福利标签误杀）。
     full = "\n".join([title, company, card_text, jd])
 
     reasons, matched, excluded, flags = [], [], [], []
@@ -253,7 +243,8 @@ def score_job(title="", company="", jd="", card_text="", site="", scene=None,
     hits_zh = _hits(EXCLUDE_HARD, title)
     hits_en = _hits(EXCLUDE_HARD_EN, title.lower())
     hits_co = _hits(EXCLUDE_COMPANY, company)
-    # .env 的 EXCLUDE_KEYWORDS 是你自己临时加的排除词，和内置表同等待遇
+    # .env 的 EXCLUDE_KEYWORDS 是临时补充的排除词，和配置里的表同等待遇。
+    # 注意它只能「追加」，删词要改 matcher_profile.json。
     hits_env = _hits(_env_list("EXCLUDE_KEYWORDS", ""), title + " " + company)
     if hits_zh or hits_en or hits_co or hits_env:
         bad = (hits_env + hits_zh + hits_en + hits_co)[:4]
@@ -384,26 +375,9 @@ def _pack(score, verdict, reasons, matched, excluded, flags, reason_line):
 # ===========================================================================
 # 六、LLM 复核：只在 review 档用，省 token 也省时间
 # ===========================================================================
-LLM_PROMPT = """你是求职匹配顾问。判断这个岗位是否值得投递。
-
-【候选人事实（不得假设任何额外经历）】
-- 学历：免疫学硕士（厦门大学）；生物技术学士
-- 经历：约 2.5 年，肿瘤医院病理科生信、生物信息公司分析师、实验室科研助理
-- 方向：计算生物学 / 肿瘤免疫 / 多组学；Python+R；NGS、scRNA-seq、空间转录组、
-  免疫组库(TCR)、新抗原预测；6 篇论文（含 J. Hematol. Oncol. 共同一作）
-- 求职方向：生物信息工程师 / 生信分析师 / 肿瘤免疫计算岗
-- 不希望投：销售、中介、外包、需博士学位、资深岗位
-
-【岗位】
-标题：{title}
-公司：{company}
-描述（截断）：
-{jd}
-
-只返回 JSON，不要任何解释文字：
-{{"fit": 0-100, "veto": true/false, "reason": "20字以内中文理由"}}
-veto=true 表示这个岗位根本不该投（方向完全无关、或明显不合适）。
-"""
+# 复核提示词来自配置项 LLM_PROMPT，里面写候选人事实与判断口径。
+# 必须保留 {title} {company} {jd} 三个占位符，否则 .format() 会报错。
+LLM_PROMPT = CFG.get("LLM_PROMPT") or _FALLBACK_PROMPT
 
 
 def llm_review(client, title, company, jd, timeout_note=None):
@@ -465,39 +439,9 @@ def decide(title="", company="", jd="", card_text="", site="", client=None,
 # ===========================================================================
 # 七、自测
 # ===========================================================================
-_SELFTEST = [
-    dict(title="生物信息工程师（单细胞与空间转录组）", company="某生物科技",
-         site="zhipin", expect="apply",
-         jd="岗位职责：负责单细胞转录组与空间转录组数据分析，搭建 NGS 分析流水线。"
-            "任职要求：硕士及以上，熟悉 Python/R，有 scRNA-seq 项目经验。"),
-    dict(title="医药代表（销售岗）", company="某药企", site="zhipin", expect="skip",
-         jd="负责区域医院客户拜访，完成销售指标。要求：大专以上，能吃苦。"),
-    dict(title="服务员", company="某餐饮", site="zhipin", expect="skip",
-         jd="负责餐厅传菜、桌面清洁。"),
-    dict(title="Senior Principal Scientist, Computational Biology", company="Genentech",
-         site="linkedin", expect="skip",
-         jd="We seek a Principal Scientist with 12+ years of experience in cancer "
-            "immunology and single-cell genomics. PhD required. No visa sponsorship."),
-    dict(title="Bioinformatics Analyst", company="Oxford Nanopore",
-         site="linkedin", expect="apply",
-         jd="About the job: You will develop NGS analysis pipelines in Python and R, "
-            "working on transcriptomics and multi-omics. Visa sponsorship available. "
-            "Master's degree with 2-3 years experience preferred."),
-    dict(title="数据分析师（生物医药方向）", company="某医疗科技",
-         site="zhipin", expect="apply",
-         jd="岗位职责：肿瘤多组学数据整合分析，免疫组库分析。任职要求：硕士，"
-            "熟悉 R/Python，有测序数据处理经验者优先。"),
-    dict(title="客服专员", company="某科技", site="zhipin", expect="skip",
-         jd="接听用户来电，处理售后问题。"),
-    dict(title="医药代表", company="某药企", site="zhipin", expect="skip",
-         jd="负责医院客户拜访，完成销售指标。"),
-    # ⚠ 回归用例：BOSS 卡片挂着「培训」「五险一金」这类福利标签，
-    #    绝不能因此把一个正经的研发岗判成销售类岗位。
-    dict(title="生物信息分析工程师", company="某生物科技", site="zhipin", expect="apply",
-         card_text="五险一金 定期体检 培训 带薪年假 团建聚餐",
-         jd="岗位职责：负责肿瘤多组学数据分析，搭建 NGS 分析流程。"
-            "任职要求：硕士，熟悉 Python/R，有单细胞测序分析经验。"),
-]
+# 自测用例来自配置项 SELFTEST，跟着配置里的方向词表走。
+# 改完 CORE_TERMS 之后，用 python matcher.py --selftest 校验判定是否符合预期。
+_SELFTEST = CFG.get("SELFTEST") or []
 
 
 def _selftest():
